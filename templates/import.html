@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="page-title">📥 批量导入房源</h1>
+
+{% if success %}
+<div class="import-success">{{ success }}</div>
+<div class="form-actions">
+    <a href="/" class="btn-primary">返回房源列表</a>
+    <a href="/import" class="btn-link">继续导入</a>
+</div>
+{% elif error %}
+<div class="import-error">{{ error }}</div>
+{% endif %}
+
+{% if not success %}
+<div class="import-card">
+    <div class="import-tips">
+        <h3>📋 CSV 格式要求</h3>
+        <p>支持 CSV（UTF-8 或 GBK）和 Excel(.xlsx)，第一行为列名：</p>
+        <code>区域,楼盘名,面积(㎡),日租金(元/㎡),月租金,楼层,装修,物业费,停车位,合同到期,来源,联系人,电话,备注</code>
+        <p style="margin-top:12px"><a href="/import/template" class="btn-link">📄 下载CSV模板</a></p>
+    </div>
+
+    <div class="import-rules">
+        <h3>⚙️ 导入规则</h3>
+        <ul>
+            <li><b>区域</b>：思明区/湖里区/集美区/海沧区/同安区/翔安区</li>
+            <li><b>楼盘名</b>：必填，空的跳过</li>
+            <li><b>去重</b>：同区域+同楼盘+同面积 → 自动更新数据，不会重复</li>
+            <li><b>自动编码</b>：UTF-8 和 GBK 都会自动识别</li>
+        </ul>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="import-form">
+        <div class="file-upload">
+            <input type="file" name="file" accept=".csv,.xlsx" required>
+        </div>
+        <button type="submit" class="btn-primary">开始导入</button>
+    </form>
+</div>
+{% endif %}
+
+{% endblock %}

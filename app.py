@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """xmotp.com - 厦门高端办公空间房源管理平台"""
-import os, sqlite3, hashlib
+import os, sys, csv, io, sqlite3, hashlib
 from datetime import datetime
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g, flash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'xmotp-secret-' + os.urandom(12).hex())
@@ -101,6 +101,8 @@ def index():
     rent_min = request.args.get('rent_min', '').strip()
     rent_max = request.args.get('rent_max', '').strip()
     page = max(1, int(request.args.get('page', '1') or '1'))
+    sort = request.args.get('sort', 'updated').strip()
+    days = request.args.get('days', '').strip()
 
     conditions = []
     params = []
@@ -113,10 +115,14 @@ def index():
         conditions.append("district = ?")
         params.append(district)
 
+    if days and days.isdigit() and int(days) > 0:
+        conditions.append("created_at >= datetime('now', ?)")
+        params.append(f'-{days} days')
+
     if keyword:
-        conditions.append("(building_name LIKE ? OR contact_name LIKE ? OR contact_phone LIKE ?)")
+        conditions.append("(building_name LIKE ? OR contact_name LIKE ? OR contact_phone LIKE ? OR notes LIKE ?)")
         kw = f'%{keyword}%'
-        params.extend([kw, kw, kw])
+        params.extend([kw, kw, kw, kw])
 
     if area_min:
         conditions.append("area_m2 >= ?")
@@ -136,9 +142,12 @@ def index():
     per_page = 20
     offset = (page - 1) * per_page
 
+    order_map = {'updated': 'updated_at DESC', 'area': 'area_m2 DESC', 'rent': 'rent_per_day ASC', 'created': 'created_at DESC'}
+    order = order_map.get(sort, 'updated_at DESC')
+
     total = db.execute(f"SELECT COUNT(*) FROM listings {where}", params).fetchone()[0]
     listings = db.execute(
-        f"SELECT * FROM listings {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+        f"SELECT * FROM listings {where} ORDER BY {order} LIMIT ? OFFSET ?",
         params + [per_page, offset]
     ).fetchall()
 
@@ -157,6 +166,7 @@ def index():
         cur_district=district, cur_status=status, cur_keyword=keyword,
         cur_area_min=area_min, cur_area_max=area_max,
         cur_rent_min=rent_min, cur_rent_max=rent_max,
+        cur_sort=sort, cur_days=days,
     )
 
 @app.route('/listing/new', methods=['GET', 'POST'])
@@ -260,6 +270,148 @@ def export():
     output = si.getvalue().encode('utf-8-sig')
     return app.response_class(output, mimetype='text/csv',
                               headers={'Content-Disposition': 'attachment; filename=房源导出.csv'})
+
+# ── 批量导入 ──────────────────────────────────────────
+
+CSV_COLUMNS = '区域,楼盘名,面积(㎡),日租金(元/㎡),月租金,楼层,装修,物业费,停车位,合同到期,来源,联系人,电话,备注'
+
+@app.route('/import', methods=['GET', 'POST'])
+@login_required
+def import_listings():
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if not file or file.filename == '':
+            return render_template('import.html', error='请选择文件')
+
+        filename = file.filename.lower()
+        if not (filename.endswith('.csv') or filename.endswith('.xlsx')):
+            return render_template('import.html', error='仅支持 CSV 或 Excel(.xlsx) 文件')
+
+        try:
+            content = file.read()
+            if filename.endswith('.csv'):
+                # 尝试 UTF-8 和 GBK
+                try:
+                    text = content.decode('utf-8-sig')
+                except UnicodeDecodeError:
+                    text = content.decode('gbk')
+                reader = csv.DictReader(io.StringIO(text))
+                rows = list(reader)
+            else:
+                # Excel: 需要 openpyxl
+                try:
+                    from openpyxl import load_workbook
+                except ImportError:
+                    return render_template('import.html', error='服务器未安装 Excel 支持，请使用 CSV 格式')
+                wb = load_workbook(io.BytesIO(content), read_only=True)
+                ws = wb.active
+                headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+                rows = []
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    rows.append(dict(zip(headers, row)))
+                wb.close()
+
+            if not rows:
+                return render_template('import.html', error='文件中没有数据')
+
+        except Exception as e:
+            return render_template('import.html', error=f'文件解析失败: {str(e)}')
+
+        db = get_db()
+        inserted, updated, skipped = 0, 0, 0
+
+        # 字段映射: CSV中文列名 → 数据库英文列名
+        field_map = {
+            '区域': 'district', '楼盘名': 'building_name',
+            '面积': 'area_m2', '面积(㎡)': 'area_m2',
+            '日租金': 'rent_per_day', '日租金(元/㎡)': 'rent_per_day',
+            '月租金': 'total_rent_month',
+            '楼层': 'floor_info', '装修': 'decoration',
+            '物业费': 'property_fee', '停车位': 'parking',
+            '合同到期': 'lease_expiry', '来源': 'source',
+            '联系人': 'contact_name', '电话': 'contact_phone',
+            '备注': 'notes', '状态': 'status',
+        }
+
+        for row in rows:
+            # 标准化列名
+            clean = {}
+            for k, v in row.items():
+                if k is None: continue
+                k = k.strip().rstrip('(㎡)').rstrip('(元/㎡)')
+                db_col = field_map.get(k, k.lower().replace(' ', '_'))
+                clean[db_col] = str(v).strip() if v else ''
+
+            building = clean.get('building_name', '')
+            district = clean.get('district', '')
+            if not building:
+                skipped += 1
+                continue
+
+            # 数值处理
+            def num(val):
+                try: return float(val)
+                except: return 0
+
+            area = num(clean.get('area_m2', 0))
+            rent = num(clean.get('rent_per_day', 0))
+            total_rent = num(clean.get('total_rent_month', 0))
+
+            # 去重: 同区域+同楼盘+同面积 → 更新
+            exist = db.execute(
+                "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=?",
+                (district, building, area)
+            ).fetchone()
+
+            if exist:
+                db.execute("""UPDATE listings SET
+                    rent_per_day=?, total_rent_month=?, floor_info=?, decoration=?,
+                    property_fee=?, parking=?, lease_expiry=?, source=?,
+                    contact_name=?, contact_phone=?, notes=?,
+                    status='在租', updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (
+                    rent, total_rent,
+                    clean.get('floor_info', ''), clean.get('decoration', '精装'),
+                    num(clean.get('property_fee', 0)), clean.get('parking', ''),
+                    clean.get('lease_expiry', ''), clean.get('source', ''),
+                    clean.get('contact_name', ''), clean.get('contact_phone', ''),
+                    clean.get('notes', ''), exist['id']
+                ))
+                updated += 1
+            else:
+                db.execute("""INSERT INTO listings
+                    (district, building_name, area_m2, rent_per_day, total_rent_month,
+                     floor_info, decoration, property_fee, parking, lease_expiry,
+                     source, contact_name, contact_phone, notes, status)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                    district, building, area, rent, total_rent,
+                    clean.get('floor_info', ''), clean.get('decoration', '精装'),
+                    num(clean.get('property_fee', 0)), clean.get('parking', ''),
+                    clean.get('lease_expiry', ''), clean.get('source', ''),
+                    clean.get('contact_name', ''), clean.get('contact_phone', ''),
+                    clean.get('notes', ''), '在租'
+                ))
+                inserted += 1
+
+        db.commit()
+
+        result = f'导入完成：新增 {inserted} 条，更新 {updated} 条'
+        if skipped: result += f'，跳过 {skipped} 条（无楼盘名）'
+        return render_template('import.html', success=result)
+
+    return render_template('import.html')
+
+@app.route('/import/template')
+@login_required
+def import_template():
+    output = io.StringIO()
+    output.write(CSV_COLUMNS + '\n')
+    output.write('思明区,世茂海峡大厦,500,3.5,52500,15层/共32层 朝南,精装,15,地下停车 800元/月,2026-12-31,58同城,张先生,13800001111,大堂气派\n')
+    output.write('湖里区,国际航运中心,300,4.0,36000,20层,精装,18,免费停车,2027-06-30,安居客,李女士,13900002222,\n')
+    return app.response_class(
+        output.getvalue().encode('utf-8-sig'), mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=房源导入模板.csv'}
+    )
 
 # ── 启动 ──────────────────────────────────────────────
 

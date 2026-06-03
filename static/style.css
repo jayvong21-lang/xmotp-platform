@@ -214,6 +214,21 @@ a:hover { text-decoration: underline; }
     .data-table { display: block; overflow-x: auto; }
     .stat-row { flex-wrap: wrap; }
 }
+/* ── 导入页 ──────────────────────────── */
+.import-card { background: var(--c-white); padding: 32px; border-radius: var(--radius); box-shadow: var(--shadow); max-width: 700px; }
+.import-tips { margin-bottom: 24px; }
+.import-tips h3, .import-rules h3 { font-size: 15px; margin-bottom: 8px; }
+.import-tips code { background: #f1f5f9; padding: 6px 10px; border-radius: 4px; font-size: 12px; display: block; margin: 8px 0; word-break: break-all; }
+.import-tips p { font-size: 14px; color: var(--c-muted); }
+.import-rules { margin-bottom: 24px; }
+.import-rules ul { font-size: 13px; color: var(--c-muted); padding-left: 18px; }
+.import-rules li { margin-bottom: 4px; }
+.file-upload { margin-bottom: 16px; }
+.file-upload input { font-size: 14px; }
+.import-form { margin-top: 16px; }
+.import-success { background: #ecfdf5; color: var(--c-green); padding: 16px; border-radius: var(--radius); font-size: 15px; font-weight: 600; margin-bottom: 20px; }
+.import-error { background: #fef2f2; color: var(--c-red); padding: 16px; border-radius: var(--radius); font-size: 14px; margin-bottom: 20px; }
+
 @media (max-width: 600px) {
     .form-grid { grid-template-columns: 1fr; }
     .filter-bar { flex-direction: column; align-items: stretch; }
