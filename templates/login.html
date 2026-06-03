@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login-box">
+    <h1>xm<b>OTP</b></h1>
+    <p class="sub">厦门高端办公空间 · 内部管理系统</p>
+    <form method="post">
+        {% if error %}<div class="msg-error">{{ error }}</div>{% endif %}
+        <label>用户名</label>
+        <input name="username" placeholder="admin" required autofocus>
+        <label>密码</label>
+        <input name="password" type="password" placeholder="••••••" required>
+        <button type="submit">登 录</button>
+    </form>
+</div>
+{% endblock %}

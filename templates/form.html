@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1 class="page-title">{{ '编辑房源' if listing else '添加房源' }}</h1>
+
+<form class="listing-form" method="post">
+    <div class="form-grid">
+        <div class="form-group">
+            <label>区域 *</label>
+            <select name="district" required>
+                <option value="">请选择</option>
+                {% for d in ['思明区','湖里区','集美区','海沧区','同安区','翔安区'] %}
+                <option value="{{ d }}" {% if listing and listing.district==d %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>楼盘名 *</label>
+            <input name="building_name" value="{{ listing.building_name if listing else '' }}" required placeholder="如: 世茂海峡大厦">
+        </div>
+        <div class="form-group">
+            <label>面积(㎡)</label>
+            <input name="area_m2" type="number" step="1" value="{{ listing.area_m2 if listing else '' }}" placeholder="如: 500">
+        </div>
+        <div class="form-group">
+            <label>日租金(元/㎡/天)</label>
+            <input name="rent_per_day" type="number" step="0.1" value="{{ listing.rent_per_day if listing else '' }}" placeholder="如: 3.5">
+        </div>
+        <div class="form-group">
+            <label>月租金(元)</label>
+            <input name="total_rent_month" type="number" step="1" value="{{ listing.total_rent_month if listing else '' }}" placeholder="总面积×日租×30">
+        </div>
+        <div class="form-group">
+            <label>楼层信息</label>
+            <input name="floor_info" value="{{ listing.floor_info if listing else '' }}" placeholder="如: 15层/共32层 朝南">
+        </div>
+        <div class="form-group">
+            <label>装修</label>
+            <select name="decoration">
+                {% for d in ['毛坯','简装','精装','豪华'] %}
+                <option value="{{ d }}" {% if listing and listing.decoration==d %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>物业费(元/㎡/月)</label>
+            <input name="property_fee" type="number" step="0.1" value="{{ listing.property_fee if listing else '' }}" placeholder="如: 15">
+        </div>
+        <div class="form-group">
+            <label>停车位</label>
+            <input name="parking" value="{{ listing.parking if listing else '' }}" placeholder="如: 地下3层 800元/月">
+        </div>
+        <div class="form-group">
+            <label>合同到期日</label>
+            <input name="lease_expiry" type="date" value="{{ listing.lease_expiry if listing else '' }}">
+        </div>
+        <div class="form-group">
+            <label>来源</label>
+            <select name="source">
+                <option value="">未知</option>
+                {% for s in ['58同城','安居客','业主直租','朋友圈','同行推荐','客户转介','其他'] %}
+                <option value="{{ s }}" {% if listing and listing.source==s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>联系人</label>
+            <input name="contact_name" value="{{ listing.contact_name if listing else '' }}" placeholder="姓名">
+        </div>
+        <div class="form-group">
+            <label>联系电话</label>
+            <input name="contact_phone" value="{{ listing.contact_phone if listing else '' }}" placeholder="手机号">
+        </div>
+        {% if listing %}
+        <div class="form-group">
+            <label>状态</label>
+            <select name="status">
+                {% for s in ['在租','已成交','已下架'] %}
+                <option value="{{ s }}" {% if listing.status==s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+    </div>
+    <div class="form-group full">
+        <label>备注</label>
+        <textarea name="notes" rows="3" placeholder="补充信息...">{{ listing.notes if listing else '' }}</textarea>
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn-primary">{{ '保存修改' if listing else '添加房源' }}</button>
+        <a href="/" class="btn-link">取消</a>
+    </div>
+</form>
+
+{% endblock %}

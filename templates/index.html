@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- 统计卡片 -->
+<div class="stat-row">
+    <div class="stat-card">
+        <div class="stat-num">{{ stats.get('在租', 0) }}</div>
+        <div class="stat-label">在租房源</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-num">{{ stats.get('已成交', 0) }}</div>
+        <div class="stat-label">已成交</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-num">{{ stats.get('已下架', 0) }}</div>
+        <div class="stat-label">已下架</div>
+    </div>
+</div>
+
+<!-- 筛选栏 -->
+<form class="filter-bar" method="get">
+    <select name="district">
+        <option value="">全部区域</option>
+        {% for d in districts %}<option value="{{ d }}" {% if cur_district==d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+    </select>
+    <select name="status">
+        <option value="在租" {% if cur_status=='在租' %}selected{% endif %}>在租</option>
+        <option value="已成交" {% if cur_status=='已成交' %}selected{% endif %}>已成交</option>
+        <option value="已下架" {% if cur_status=='已下架' %}selected{% endif %}>已下架</option>
+        <option value="全部" {% if cur_status=='全部' %}selected{% endif %}>全部</option>
+    </select>
+    <input name="area_min" type="number" step="1" placeholder="面积≥" value="{{ cur_area_min }}" style="width:70px">
+    <input name="area_max" type="number" step="1" placeholder="面积≤" value="{{ cur_area_max }}" style="width:70px">
+    <input name="rent_min" type="number" step="0.1" placeholder="日租≥" value="{{ cur_rent_min }}" style="width:70px">
+    <input name="rent_max" type="number" step="0.1" placeholder="日租≤" value="{{ cur_rent_max }}" style="width:70px">
+    <input name="keyword" placeholder="搜楼盘/联系人/电话" value="{{ cur_keyword }}" style="width:140px">
+    <button type="submit">筛选</button>
+    <a href="/" class="btn-link">清除</a>
+    <a href="/export" class="btn-link" style="margin-left:auto">📥 导出Excel</a>
+</form>
+
+<!-- 房源列表 -->
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>区域</th>
+            <th>楼盘名</th>
+            <th>面积(㎡)</th>
+            <th>日租(元/㎡)</th>
+            <th>月租(元)</th>
+            <th>楼层</th>
+            <th>装修</th>
+            <th>来源</th>
+            <th>联系人</th>
+            <th>状态</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for r in listings %}
+        <tr class="status-{{ 'active' if r.status=='在租' else ('sold' if r.status=='已成交' else 'off') }}">
+            <td>{{ r.district }}</td>
+            <td><a href="/listing/{{ r.id }}/detail">{{ r.building_name }}</a></td>
+            <td class="num">{{ r.area_m2 if r.area_m2 else '-' }}</td>
+            <td class="num">{{ r.rent_per_day if r.rent_per_day else '-' }}</td>
+            <td class="num">{{ r.total_rent_month if r.total_rent_month else '-' }}</td>
+            <td>{{ r.floor_info or '-' }}</td>
+            <td>{{ r.decoration or '-' }}</td>
+            <td>{{ r.source or '-' }}</td>
+            <td>{{ r.contact_name or '-' }}</td>
+            <td class="tag-{{ 'active' if r.status=='在租' else ('sold' if r.status=='已成交' else 'off') }}">{{ r.status }}</td>
+            <td class="actions">
+                <a href="/listing/{{ r.id }}/edit" class="btn-sm">编辑</a>
+                {% if r.status == '在租' %}
+                <form method="post" action="/listing/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('确定下架该房源？')"><button class="btn-sm btn-danger">下架</button></form>
+                {% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11" class="empty">暂无房源数据，<a href="/listing/new">添加第一条</a></td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- 分页 -->
+{% if total_pages > 1 %}
+<div class="pager">
+    {% if page > 1 %}<a href="?{{ request.args|urlencode(page=page-1) }}">‹ 上一页</a>{% endif %}
+    <span>{{ page }} / {{ total_pages }} (共{{ total }}条)</span>
+    {% if page < total_pages %}<a href="?{{ request.args|urlencode(page=page+1) }}">下一页 ›</a>{% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

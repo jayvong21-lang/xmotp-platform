@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>xmotp · 厦门高端办公空间</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    {% if session.user %}
+    <nav class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="brand">xmOTP</a>
+            <div class="nav-links">
+                <a href="/">房源管理</a>
+                <a href="/listing/new">+ 添加房源</a>
+            </div>
+            <div class="user-area">
+                <span>{{ session.user.name }}</span>
+                <a href="/logout" class="btn-ghost">退出</a>
+            </div>
+        </div>
+    </nav>
+    <div class="flash-msg" id="flashMsg"></div>
+    {% endif %}
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    {% if session.user %}
+    <script>
+    // 隐藏消息提示自动消失
+    const flash = document.getElementById('flashMsg');
+    function showMsg(text, cls) {
+        flash.textContent = text;
+        flash.className = 'flash-msg ' + cls;
+        setTimeout(() => flash.className = 'flash-msg', 3000);
+    }
+    </script>
+    {% endif %}
+</body>
+</html>

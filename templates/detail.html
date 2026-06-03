@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="detail-header">
+    <a href="/" class="back">‹ 返回列表</a>
+    <h1>{{ listing.building_name }}</h1>
+    <span class="tag-{{ 'active' if listing.status=='在租' else ('sold' if listing.status=='已成交' else 'off') }}">{{ listing.status }}</span>
+</div>
+
+<div class="detail-grid">
+    <div class="detail-section">
+        <h3>基本信息</h3>
+        <table class="kv-table">
+            <tr><td>区域</td><td>{{ listing.district or '-' }}</td></tr>
+            <tr><td>面积</td><td>{{ listing.area_m2 }} ㎡</td></tr>
+            <tr><td>日租金</td><td>{{ listing.rent_per_day }} 元/㎡/天</td></tr>
+            <tr><td>月租金</td><td>{{ listing.total_rent_month or '-' }} 元</td></tr>
+            <tr><td>楼层</td><td>{{ listing.floor_info or '-' }}</td></tr>
+            <tr><td>装修</td><td>{{ listing.decoration or '-' }}</td></tr>
+        </table>
+    </div>
+    <div class="detail-section">
+        <h3>费用 & 条件</h3>
+        <table class="kv-table">
+            <tr><td>物业费</td><td>{{ listing.property_fee or '-' }} 元/㎡/月</td></tr>
+            <tr><td>停车位</td><td>{{ listing.parking or '-' }}</td></tr>
+            <tr><td>合同到期</td><td>{{ listing.lease_expiry or '-' }}</td></tr>
+        </table>
+    </div>
+    <div class="detail-section">
+        <h3>联系方式</h3>
+        <table class="kv-table">
+            <tr><td>来源</td><td>{{ listing.source or '-' }}</td></tr>
+            <tr><td>联系人</td><td>{{ listing.contact_name or '-' }}</td></tr>
+            <tr><td>电话</td><td>{{ listing.contact_phone or '-' }}</td></tr>
+        </table>
+    </div>
+    {% if listing.notes %}
+    <div class="detail-section full-width">
+        <h3>备注</h3>
+        <p class="notes-text">{{ listing.notes }}</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="detail-actions">
+    <a href="/listing/{{ listing.id }}/edit" class="btn-primary">编辑</a>
+    {% if listing.status == '在租' %}
+    <form method="post" action="/listing/{{ listing.id }}/delete" style="display:inline" onsubmit="return confirm('确定下架该房源？')"><button class="btn-danger">下架房源</button></form>
+    {% endif %}
+</div>
+
+{% endblock %}
