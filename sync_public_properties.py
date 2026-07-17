@@ -63,7 +63,7 @@ def sync_public_properties(database, output):
         '/**\n'
         ' * 龙溪企服 - 房源库公开数据（自动生成，请勿手工修改）\n'
         ' * 数据来源：xmOTP listings 表，仅同步“在租”房源。\n'
-        ' * 联系人、电话、来源、内部备注和看房密码不会写入官网。\n'
+        ' * 非公开字段不会写入官网。\n'
         ' */\n\n'
         'const propertiesList = ' +
         json.dumps(properties, ensure_ascii=False, indent=2) +
