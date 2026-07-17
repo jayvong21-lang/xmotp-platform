@@ -4,6 +4,7 @@ import os, sys, csv, io, sqlite3, hashlib
 from datetime import datetime
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, g, flash
+from sync_public_properties import sync_public_properties
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'xmotp-secret-' + os.urandom(12).hex())
@@ -129,6 +130,17 @@ def init_db():
                ('admin', pwd, '管理员'))
     db.commit()
     db.close()
+    sync_properties_if_configured()
+
+def sync_properties_if_configured():
+    output = os.environ.get('LONGC_PROPERTIES_OUTPUT', '').strip()
+    if not output:
+        return 0
+    try:
+        return sync_public_properties(DATABASE, output)
+    except Exception:
+        app.logger.exception('同步龙溪官网房源失败')
+        return -1
 
 # ── 登录 ──────────────────────────────────────────────
 
@@ -314,6 +326,7 @@ def listing_new():
             '在租'
         ))
         db.commit()
+        sync_properties_if_configured()
         return redirect(url_for('index'))
     return render_template('form.html', listing=None)
 
@@ -360,6 +373,7 @@ def listing_edit(id):
             id
         ))
         db.commit()
+        sync_properties_if_configured()
         return redirect(url_for('index'))
     return render_template('form.html', listing=listing)
 
@@ -369,6 +383,7 @@ def listing_delete(id):
     db = get_db()
     db.execute("UPDATE listings SET status='已下架', updated_at=CURRENT_TIMESTAMP WHERE id=?", (id,))
     db.commit()
+    sync_properties_if_configured()
     return redirect(url_for('index'))
 
 @app.route('/listing/<int:id>/detail')
@@ -497,6 +512,7 @@ def import_listings():
                 inserted += 1
 
         db.commit()
+        sync_properties_if_configured()
 
         result = f'导入完成：新增 {inserted} 条，更新 {updated} 条'
         if skipped: result += f'，跳过 {skipped} 条（无楼盘名）'
