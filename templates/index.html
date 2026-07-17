@@ -31,8 +31,6 @@
     </select>
     <input name="area_min" type="number" step="1" placeholder="面积≥" value="{{ cur_area_min }}" style="width:70px">
     <input name="area_max" type="number" step="1" placeholder="面积≤" value="{{ cur_area_max }}" style="width:70px">
-    <input name="rent_min" type="number" step="0.1" placeholder="日租≥" value="{{ cur_rent_min }}" style="width:70px">
-    <input name="rent_max" type="number" step="0.1" placeholder="日租≤" value="{{ cur_rent_max }}" style="width:70px">
     <input name="keyword" placeholder="搜楼盘/联系人/电话/备注" value="{{ cur_keyword }}" style="width:170px">
     <select name="days">
         <option value="" {% if not cur_days %}selected{% endif %}>不限时间</option>
@@ -59,8 +57,9 @@
             <th>区域</th>
             <th>楼盘名</th>
             <th>面积(㎡)</th>
-            <th>日租(元/㎡)</th>
+            <th>租金单价(元/㎡/月)</th>
             <th>月租(元)</th>
+            <th>物业费(元/㎡/月)</th>
             <th>楼层</th>
             <th>装修</th>
             <th>来源</th>
@@ -75,8 +74,9 @@
             <td>{{ r.district }}</td>
             <td><a href="/listing/{{ r.id }}/detail">{{ r.building_name }}</a></td>
             <td class="num">{{ r.area_m2 if r.area_m2 else '-' }}</td>
-            <td class="num">{{ r.rent_per_day if r.rent_per_day else '-' }}</td>
+            <td class="num">{% if r.area_m2 and r.total_rent_month %}{{ (r.total_rent_month / r.area_m2)|round(1) }}{% else %}-{% endif %}</td>
             <td class="num">{{ r.total_rent_month if r.total_rent_month else '-' }}</td>
+            <td class="num">{{ r.property_fee if r.property_fee else '-' }}</td>
             <td>{{ r.floor_info or '-' }}</td>
             <td>{{ r.decoration or '-' }}</td>
             <td>{{ r.source or '-' }}</td>
@@ -90,7 +90,7 @@
             </td>
         </tr>
         {% else %}
-        <tr><td colspan="11" class="empty">暂无房源数据，<a href="/listing/new">添加第一条</a></td></tr>
+        <tr><td colspan="12" class="empty">暂无房源数据，<a href="/listing/new">添加第一条</a></td></tr>
         {% endfor %}
     </tbody>
 </table>
@@ -98,9 +98,9 @@
 <!-- 分页 -->
 {% if total_pages > 1 %}
 <div class="pager">
-    {% if page > 1 %}<a href="?{{ request.args|urlencode(page=page-1) }}">‹ 上一页</a>{% endif %}
+    {% if page > 1 %}<a href="{{ page_url(page-1) }}">‹ 上一页</a>{% endif %}
     <span>{{ page }} / {{ total_pages }} (共{{ total }}条)</span>
-    {% if page < total_pages %}<a href="?{{ request.args|urlencode(page=page+1) }}">下一页 ›</a>{% endif %}
+    {% if page < total_pages %}<a href="{{ page_url(page+1) }}">下一页 ›</a>{% endif %}
 </div>
 {% endif %}
 

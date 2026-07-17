@@ -3,6 +3,8 @@
 
 <h1 class="page-title">{{ '编辑房源' if listing else '添加房源' }}</h1>
 
+{% if error %}<div class="import-error">{{ error }}</div>{% endif %}
+
 <form class="listing-form" method="post">
     <div class="form-grid">
         <div class="form-group">
@@ -21,10 +23,6 @@
         <div class="form-group">
             <label>面积(㎡)</label>
             <input name="area_m2" type="number" step="1" value="{{ listing.area_m2 if listing else '' }}" placeholder="如: 500">
-        </div>
-        <div class="form-group">
-            <label>日租金(元/㎡/天)</label>
-            <input name="rent_per_day" type="number" step="0.1" value="{{ listing.rent_per_day if listing else '' }}" placeholder="如: 3.5">
         </div>
         <div class="form-group">
             <label>月租金(元)</label>

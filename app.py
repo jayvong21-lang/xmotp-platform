@@ -7,7 +7,25 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'xmotp-secret-' + os.urandom(12).hex())
-DATABASE = os.path.join(os.path.dirname(__file__), 'xmotp.db')
+DATABASE = os.environ.get('XMOTP_DATABASE', os.path.join(os.path.dirname(__file__), 'xmotp.db'))
+
+COLUMN_MAP = {
+    '区域': 'district', 'district': 'district',
+    '楼盘': 'building_name', '楼盘名': 'building_name', 'building_name': 'building_name',
+    '面积': 'area_m2', '面积㎡': 'area_m2', '面积(㎡)': 'area_m2', 'area_m2': 'area_m2',
+    '日租金': 'rent_per_day', '日租金(元/㎡)': 'rent_per_day', 'rent_per_day': 'rent_per_day',
+    '月租金': 'total_rent_month', '月租': 'total_rent_month', 'total_rent_month': 'total_rent_month',
+    '物业费': 'property_fee', 'property_fee': 'property_fee',
+    '楼层': 'floor_info', 'floor_info': 'floor_info',
+    '装修': 'decoration', 'decoration': 'decoration',
+    '停车位': 'parking', '停车': 'parking', 'parking': 'parking',
+    '合同到期': 'lease_expiry', 'lease_expiry': 'lease_expiry',
+    '来源': 'source', '渠道': 'source', 'source': 'source',
+    '联系人': 'contact_name', 'contact_name': 'contact_name',
+    '联系电话': 'contact_phone', '电话': 'contact_phone', 'contact_phone': 'contact_phone',
+    '状态': 'status', 'status': 'status',
+    '备注': 'notes', 'notes': 'notes',
+}
 
 # ── 数据库 ────────────────────────────────────────────
 
@@ -52,6 +70,58 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS listings_duplicates_archive (
+            archive_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            original_id INTEGER UNIQUE NOT NULL,
+            district TEXT, building_name TEXT, area_m2 REAL, rent_per_day REAL,
+            total_rent_month REAL, floor_info TEXT, decoration TEXT,
+            property_fee REAL, parking TEXT, lease_expiry TEXT, source TEXT,
+            contact_name TEXT, contact_phone TEXT, notes TEXT, status TEXT,
+            created_at DATETIME, updated_at DATETIME,
+            archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            archive_reason TEXT DEFAULT 'duplicate district/building/area'
+        );
+    """)
+    # 历史数据迁移：同区域、楼盘、面积只保留更新时间最新（同时间保留 id 最大）的一条。
+    db.execute("""
+        INSERT OR IGNORE INTO listings_duplicates_archive (
+            original_id, district, building_name, area_m2, rent_per_day,
+            total_rent_month, floor_info, decoration, property_fee, parking,
+            lease_expiry, source, contact_name, contact_phone, notes, status,
+            created_at, updated_at
+        )
+        SELECT id, district, building_name, area_m2, rent_per_day,
+            total_rent_month, floor_info, decoration, property_fee, parking,
+            lease_expiry, source, contact_name, contact_phone, notes, status,
+            created_at, updated_at
+        FROM listings
+        WHERE EXISTS (
+            SELECT 1 FROM listings newer
+            WHERE newer.district = listings.district
+              AND newer.building_name = listings.building_name
+              AND newer.area_m2 = listings.area_m2
+              AND (
+                  datetime(newer.updated_at) > datetime(listings.updated_at)
+                  OR (datetime(newer.updated_at) = datetime(listings.updated_at) AND newer.id > listings.id)
+              )
+        )
+    """)
+    db.execute("""
+        DELETE FROM listings
+        WHERE EXISTS (
+            SELECT 1 FROM listings newer
+            WHERE newer.district = listings.district
+              AND newer.building_name = listings.building_name
+              AND newer.area_m2 = listings.area_m2
+              AND (
+                  datetime(newer.updated_at) > datetime(listings.updated_at)
+                  OR (datetime(newer.updated_at) = datetime(listings.updated_at) AND newer.id > listings.id)
+              )
+        )
+    """)
+    db.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_dedup
+        ON listings(district, building_name, area_m2)
     """)
     # 默认管理员账号: admin / admin123
     pwd = hashlib.sha256('admin123'.encode()).hexdigest()
@@ -69,6 +139,36 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*a, **kw)
     return decorated
+
+def api_login_required(f):
+    @wraps(f)
+    def decorated(*a, **kw):
+        if 'user' not in session:
+            return jsonify({'error': 'authentication required'}), 401
+        return f(*a, **kw)
+    return decorated
+
+def normalize_row(row):
+    """把中英文表头、空值和常见 Excel 数值统一为数据库字段。"""
+    clean = {}
+    for key, value in row.items():
+        if key is None:
+            continue
+        key = str(key).strip()
+        db_col = COLUMN_MAP.get(key, key.lower().replace(' ', '_'))
+        if value is None or str(value).strip().lower() == 'nan':
+            clean[db_col] = ''
+        else:
+            clean[db_col] = str(value).strip()
+    return clean
+
+def number(value):
+    try:
+        if value is None or str(value).strip() == '':
+            return 0
+        return float(str(value).replace(',', '').strip())
+    except (TypeError, ValueError):
+        return 0
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -160,6 +260,12 @@ def index():
         "SELECT status, COUNT(*) FROM listings GROUP BY status"
     ).fetchall())
 
+    def page_url(p):
+        args = request.args.copy()
+        args['page'] = p
+        from urllib.parse import urlencode
+        return '?' + urlencode(args.to_dict(flat=False), doseq=True)
+
     return render_template('index.html',
         listings=listings, districts=districts,
         stats=stats, page=page, total_pages=total_pages, total=total,
@@ -167,6 +273,7 @@ def index():
         cur_area_min=area_min, cur_area_max=area_max,
         cur_rent_min=rent_min, cur_rent_max=rent_max,
         cur_sort=sort, cur_days=days,
+        page_url=page_url,
     )
 
 @app.route('/listing/new', methods=['GET', 'POST'])
@@ -174,6 +281,16 @@ def index():
 def listing_new():
     if request.method == 'POST':
         db = get_db()
+        duplicate = db.execute(
+            "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=?",
+            (request.form.get('district', ''), request.form.get('building_name', ''),
+             number(request.form.get('area_m2', 0)))
+        ).fetchone()
+        if duplicate:
+            return render_template(
+                'form.html', listing=request.form,
+                error='该区域、楼盘和面积的房源已存在，请编辑原记录。'
+            ), 409
         db.execute("""
             INSERT INTO listings (district, building_name, area_m2, rent_per_day, total_rent_month,
                 floor_info, decoration, property_fee, parking, lease_expiry,
@@ -208,6 +325,16 @@ def listing_edit(id):
     if not listing:
         return "房源不存在", 404
     if request.method == 'POST':
+        duplicate = db.execute(
+            "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=? AND id!=?",
+            (request.form.get('district', ''), request.form.get('building_name', ''),
+             number(request.form.get('area_m2', 0)), id)
+        ).fetchone()
+        if duplicate:
+            return render_template(
+                'form.html', listing=listing,
+                error='修改后会与现有房源重复，请调整区域、楼盘或面积。'
+            ), 409
         db.execute("""
             UPDATE listings SET district=?, building_name=?, area_m2=?, rent_per_day=?,
                 total_rent_month=?, floor_info=?, decoration=?, property_fee=?, parking=?,
@@ -320,27 +447,8 @@ def import_listings():
         db = get_db()
         inserted, updated, skipped = 0, 0, 0
 
-        # 字段映射: CSV中文列名 → 数据库英文列名
-        field_map = {
-            '区域': 'district', '楼盘名': 'building_name',
-            '面积': 'area_m2', '面积(㎡)': 'area_m2',
-            '日租金': 'rent_per_day', '日租金(元/㎡)': 'rent_per_day',
-            '月租金': 'total_rent_month',
-            '楼层': 'floor_info', '装修': 'decoration',
-            '物业费': 'property_fee', '停车位': 'parking',
-            '合同到期': 'lease_expiry', '来源': 'source',
-            '联系人': 'contact_name', '电话': 'contact_phone',
-            '备注': 'notes', '状态': 'status',
-        }
-
         for row in rows:
-            # 标准化列名
-            clean = {}
-            for k, v in row.items():
-                if k is None: continue
-                k = k.strip().rstrip('(㎡)').rstrip('(元/㎡)')
-                db_col = field_map.get(k, k.lower().replace(' ', '_'))
-                clean[db_col] = str(v).strip() if v else ''
+            clean = normalize_row(row)
 
             building = clean.get('building_name', '')
             district = clean.get('district', '')
@@ -348,14 +456,9 @@ def import_listings():
                 skipped += 1
                 continue
 
-            # 数值处理
-            def num(val):
-                try: return float(val)
-                except: return 0
-
-            area = num(clean.get('area_m2', 0))
-            rent = num(clean.get('rent_per_day', 0))
-            total_rent = num(clean.get('total_rent_month', 0))
+            area = number(clean.get('area_m2', 0))
+            rent = number(clean.get('rent_per_day', 0))
+            total_rent = number(clean.get('total_rent_month', 0))
 
             # 去重: 同区域+同楼盘+同面积 → 更新
             exist = db.execute(
@@ -372,7 +475,7 @@ def import_listings():
                     WHERE id=?""", (
                     rent, total_rent,
                     clean.get('floor_info', ''), clean.get('decoration', '精装'),
-                    num(clean.get('property_fee', 0)), clean.get('parking', ''),
+                    number(clean.get('property_fee', 0)), clean.get('parking', ''),
                     clean.get('lease_expiry', ''), clean.get('source', ''),
                     clean.get('contact_name', ''), clean.get('contact_phone', ''),
                     clean.get('notes', ''), exist['id']
@@ -386,7 +489,7 @@ def import_listings():
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     district, building, area, rent, total_rent,
                     clean.get('floor_info', ''), clean.get('decoration', '精装'),
-                    num(clean.get('property_fee', 0)), clean.get('parking', ''),
+                    number(clean.get('property_fee', 0)), clean.get('parking', ''),
                     clean.get('lease_expiry', ''), clean.get('source', ''),
                     clean.get('contact_name', ''), clean.get('contact_phone', ''),
                     clean.get('notes', ''), '在租'
@@ -413,10 +516,45 @@ def import_template():
         headers={'Content-Disposition': 'attachment; filename=房源导入模板.csv'}
     )
 
+# ── 查询 API（包含联系人信息，必须登录） ───────────────
+
+@app.route('/api/listings')
+@api_login_required
+def api_listings():
+    db = get_db()
+    limit = min(max(request.args.get('limit', 200, type=int), 1), 500)
+    offset = max(request.args.get('offset', 0, type=int), 0)
+    status = request.args.get('status', '').strip()
+    district = request.args.get('district', '').strip()
+    conditions, params = [], []
+    if status:
+        conditions.append('status=?')
+        params.append(status)
+    if district:
+        conditions.append('district=?')
+        params.append(district)
+    where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+    rows = db.execute(
+        'SELECT * FROM listings' + where + ' ORDER BY updated_at DESC LIMIT ? OFFSET ?',
+        params + [limit, offset]
+    ).fetchall()
+    return jsonify([dict(row) for row in rows])
+
+@app.route('/api/stats')
+@api_login_required
+def api_stats():
+    db = get_db()
+    stats = {
+        'total': db.execute('SELECT COUNT(*) FROM listings').fetchone()[0],
+        'active': db.execute("SELECT COUNT(*) FROM listings WHERE status='在租'").fetchone()[0],
+        'today_new': db.execute("SELECT COUNT(*) FROM listings WHERE date(created_at)=date('now','localtime')").fetchone()[0],
+        'today_updated': db.execute("SELECT COUNT(*) FROM listings WHERE date(updated_at)=date('now','localtime') AND date(created_at)!=date('now','localtime')").fetchone()[0],
+    }
+    return jsonify(stats)
+
 # ── 启动 ──────────────────────────────────────────────
 
+init_db()
+
 if __name__ == '__main__':
-    if not os.path.exists(DATABASE):
-        init_db()
-        print("数据库已初始化")
     app.run(host='0.0.0.0', port=5100, debug=False)
