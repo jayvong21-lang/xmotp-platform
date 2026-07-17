@@ -133,7 +133,10 @@ def init_db():
     sync_properties_if_configured()
 
 def sync_properties_if_configured():
-    output = os.environ.get('LONGC_PROPERTIES_OUTPUT', '').strip()
+    default_output = '/var/www/longc-es/js/properties-data.js'
+    if not os.path.isdir(os.path.dirname(default_output)):
+        default_output = ''
+    output = os.environ.get('LONGC_PROPERTIES_OUTPUT', default_output).strip()
     if not output:
         return 0
     try:
