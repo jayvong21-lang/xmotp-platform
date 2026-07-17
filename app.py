@@ -83,24 +83,41 @@ def init_db():
             archive_reason TEXT DEFAULT 'duplicate district/building/area'
         );
     """)
-    # 历史数据迁移：同区域、楼盘、面积只保留更新时间最新（同时间保留 id 最大）的一条。
+    # 修复旧版三字段去重：同面积但不同楼层/房号是不同房源，先恢复被误归档的记录。
+    db.execute("DROP INDEX IF EXISTS idx_listings_dedup")
+    db.execute("""
+        INSERT OR IGNORE INTO listings (
+            id, district, building_name, area_m2, rent_per_day,
+            total_rent_month, floor_info, decoration, property_fee, parking,
+            lease_expiry, source, contact_name, contact_phone, notes, status,
+            created_at, updated_at
+        )
+        SELECT original_id, district, building_name, area_m2, rent_per_day,
+            total_rent_month, floor_info, decoration, property_fee, parking,
+            lease_expiry, source, contact_name, contact_phone, notes, status,
+            created_at, updated_at
+        FROM listings_duplicates_archive
+        WHERE archive_reason = 'duplicate district/building/area'
+    """)
+    # 真正完全相同的单元才去重：区域、楼盘、面积和楼层/房号必须全部一致。
     db.execute("""
         INSERT OR IGNORE INTO listings_duplicates_archive (
             original_id, district, building_name, area_m2, rent_per_day,
             total_rent_month, floor_info, decoration, property_fee, parking,
             lease_expiry, source, contact_name, contact_phone, notes, status,
-            created_at, updated_at
+            created_at, updated_at, archive_reason
         )
         SELECT id, district, building_name, area_m2, rent_per_day,
             total_rent_month, floor_info, decoration, property_fee, parking,
             lease_expiry, source, contact_name, contact_phone, notes, status,
-            created_at, updated_at
+            created_at, updated_at, 'duplicate district/building/area/floor'
         FROM listings
         WHERE EXISTS (
             SELECT 1 FROM listings newer
             WHERE newer.district = listings.district
               AND newer.building_name = listings.building_name
               AND newer.area_m2 = listings.area_m2
+              AND newer.floor_info = listings.floor_info
               AND (
                   datetime(newer.updated_at) > datetime(listings.updated_at)
                   OR (datetime(newer.updated_at) = datetime(listings.updated_at) AND newer.id > listings.id)
@@ -114,6 +131,7 @@ def init_db():
             WHERE newer.district = listings.district
               AND newer.building_name = listings.building_name
               AND newer.area_m2 = listings.area_m2
+              AND newer.floor_info = listings.floor_info
               AND (
                   datetime(newer.updated_at) > datetime(listings.updated_at)
                   OR (datetime(newer.updated_at) = datetime(listings.updated_at) AND newer.id > listings.id)
@@ -121,8 +139,8 @@ def init_db():
         )
     """)
     db.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_dedup
-        ON listings(district, building_name, area_m2)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_unit
+        ON listings(district, building_name, area_m2, floor_info)
     """)
     # 默认管理员账号: admin / admin123
     pwd = hashlib.sha256('admin123'.encode()).hexdigest()
@@ -297,14 +315,14 @@ def listing_new():
     if request.method == 'POST':
         db = get_db()
         duplicate = db.execute(
-            "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=?",
+            "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=? AND floor_info=?",
             (request.form.get('district', ''), request.form.get('building_name', ''),
-             number(request.form.get('area_m2', 0)))
+             number(request.form.get('area_m2', 0)), request.form.get('floor_info', ''))
         ).fetchone()
         if duplicate:
             return render_template(
                 'form.html', listing=request.form,
-                error='该区域、楼盘和面积的房源已存在，请编辑原记录。'
+                error='该区域、楼盘、面积和楼层/房号的房源已存在，请编辑原记录。'
             ), 409
         db.execute("""
             INSERT INTO listings (district, building_name, area_m2, rent_per_day, total_rent_month,
@@ -342,14 +360,14 @@ def listing_edit(id):
         return "房源不存在", 404
     if request.method == 'POST':
         duplicate = db.execute(
-            "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=? AND id!=?",
+            "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=? AND floor_info=? AND id!=?",
             (request.form.get('district', ''), request.form.get('building_name', ''),
-             number(request.form.get('area_m2', 0)), id)
+             number(request.form.get('area_m2', 0)), request.form.get('floor_info', ''), id)
         ).fetchone()
         if duplicate:
             return render_template(
                 'form.html', listing=listing,
-                error='修改后会与现有房源重复，请调整区域、楼盘或面积。'
+                error='修改后会与现有房源重复，请调整区域、楼盘、面积或楼层/房号。'
             ), 409
         db.execute("""
             UPDATE listings SET district=?, building_name=?, area_m2=?, rent_per_day=?,
@@ -478,10 +496,10 @@ def import_listings():
             rent = number(clean.get('rent_per_day', 0))
             total_rent = number(clean.get('total_rent_month', 0))
 
-            # 去重: 同区域+同楼盘+同面积 → 更新
+            # 去重: 同区域+同楼盘+同面积+同楼层/房号 → 更新
             exist = db.execute(
-                "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=?",
-                (district, building, area)
+                "SELECT id FROM listings WHERE district=? AND building_name=? AND area_m2=? AND floor_info=?",
+                (district, building, area, clean.get('floor_info', ''))
             ).fetchone()
 
             if exist:

@@ -47,10 +47,13 @@ class XmotpAppTests(unittest.TestCase):
     def test_init_db_deduplicates_and_creates_unique_index(self):
         with sqlite3.connect(self.db_path) as db:
             db.execute('DROP INDEX IF EXISTS idx_listings_dedup')
-            values = ('思明区', '测试大厦', 100, '2026-07-01 10:00:00')
-            db.execute('INSERT INTO listings (district, building_name, area_m2, updated_at) VALUES (?,?,?,?)', values)
-            values = ('思明区', '测试大厦', 100, '2026-07-02 10:00:00')
-            db.execute('INSERT INTO listings (district, building_name, area_m2, updated_at) VALUES (?,?,?,?)', values)
+            db.execute('DROP INDEX IF EXISTS idx_listings_unit')
+            values = ('思明区', '测试大厦', 100, '101', '2026-07-01 10:00:00')
+            db.execute('INSERT INTO listings (district, building_name, area_m2, floor_info, updated_at) VALUES (?,?,?,?,?)', values)
+            values = ('思明区', '测试大厦', 100, '101', '2026-07-02 10:00:00')
+            db.execute('INSERT INTO listings (district, building_name, area_m2, floor_info, updated_at) VALUES (?,?,?,?,?)', values)
+            values = ('思明区', '测试大厦', 100, '102', '2026-07-03 10:00:00')
+            db.execute('INSERT INTO listings (district, building_name, area_m2, floor_info, updated_at) VALUES (?,?,?,?,?)', values)
             db.commit()
 
         self.module.init_db()
@@ -59,10 +62,11 @@ class XmotpAppTests(unittest.TestCase):
             rows = db.execute("SELECT id, updated_at FROM listings WHERE building_name='测试大厦'").fetchall()
             archived = db.execute("SELECT original_id FROM listings_duplicates_archive WHERE building_name='测试大厦'").fetchall()
             indexes = db.execute("PRAGMA index_list('listings')").fetchall()
-        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows), 2)
         self.assertEqual(len(archived), 1)
-        self.assertEqual(rows[0][1], '2026-07-02 10:00:00')
-        self.assertTrue(any(row[1] == 'idx_listings_dedup' and row[2] == 1 for row in indexes))
+        self.assertIn('2026-07-02 10:00:00', [row[1] for row in rows])
+        self.assertIn('2026-07-03 10:00:00', [row[1] for row in rows])
+        self.assertTrue(any(row[1] == 'idx_listings_unit' and row[2] == 1 for row in indexes))
 
     def test_api_requires_login_and_returns_data_after_login(self):
         response = self.client.get('/api/listings')
