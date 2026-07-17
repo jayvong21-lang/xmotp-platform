@@ -79,6 +79,7 @@ def sync_public_properties(database, output):
         with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as handle:
             handle.write(content)
         os.replace(temp_path, output)
+        os.chmod(output, 0o644)
     except Exception:
         if os.path.exists(temp_path):
             os.remove(temp_path)
